@@ -22,10 +22,10 @@ export async function createItem(initItem: InitItem) {
     const itemKey = ["items", id];
     const itemsByUserKey = ["items_by_user", initItem.userId, id];
     const item: Item = {
-      ...initItem,
       id,
       score: 0,
       createdAt: new Date(),
+      ...initItem,
     };
 
     res = await kv.atomic()
@@ -424,4 +424,12 @@ export function* batchify<T>(arr: T[], n = 5): Generator<T[], void> {
   for (let i = 0; i < arr.length; i += n) {
     yield arr.slice(i, i + n);
   }
+}
+
+export const computeZeroToOneScore = (score: number, timestampMs: number) => {
+  if (score === 0) return 0.5;
+  const days = Math.max(0.01, ((new Date()).getTime() - timestampMs) / (1000 * 3600 * 24));
+  const val = 0.2 * (1 / (2 ** (Math.sqrt(Math.sqrt(1 + days))))) + 0.8 * (1 + (1 / (2 * Math.log(1 + score)))) / (1 + (1 / (1 * Math.log(1 + score))));
+  const bounded = Math.min(1.0, Math.max(0.1, val));
+  return bounded.toFixed(18).slice(2, 18);
 }

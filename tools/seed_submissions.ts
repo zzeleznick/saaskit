@@ -49,8 +49,9 @@ const fetchTopStories = async (limit = 10) => {
 }
 
 const seedSubmissions = async (stories: Story[]) => {
-    const items = stories.map(({ by: userId, title, url }) => {
-        return { userId, title, url }
+    const items = stories.map(({ by: userId, title, url, id, score, time }) => {
+        const createdAt = (new Date(time * 1000)).toISOString()
+        return { userId, title, url, id, score, createdAt }
     })
     for (const batch of batchify(items)) {
         await Promise.all(batch.map(item => createItem(item)))
