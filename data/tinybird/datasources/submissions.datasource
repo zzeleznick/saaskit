@@ -1,0 +1,13 @@
+DESCRIPTION >
+    Generated from HN Posts
+
+SCHEMA >
+    `userId` LowCardinality(String) `json:$.userId`,
+    `id` UUID `json:$.id`,
+    `createdAt` DateTime `json:$.createdAt`,
+    `score` Int32 `json:$.score`,
+    `title` String `json:$.title`,
+    `url` String `json:$.url`
+
+ENGINE "MergeTree"
+ENGINE_SORTING_KEY "userId, id, createdAt"

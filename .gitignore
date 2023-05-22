@@ -1,3 +1,5 @@
 .env
+**/.tinyb
+
 out.json
 out_scores.json

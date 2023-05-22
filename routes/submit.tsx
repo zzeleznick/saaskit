@@ -42,6 +42,10 @@ export const handler: Handlers<State, State> = {
       url,
     });
 
+    if (!item) {
+      return new Response(`Something went wrong!`, { status: 500 });
+    }
+
     return redirect(`/item/${item!.id}`);
   },
 };

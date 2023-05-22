@@ -1,5 +1,6 @@
 // Copyright 2023 the Deno authors. All rights reserved. MIT license.
 
+import "std/dotenv/load.ts"; // MARK: load env before db load
 import { batchify, createItem } from "@/utils/db.ts";
 
 // Reference: https://github.com/HackerNews/API

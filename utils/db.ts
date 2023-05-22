@@ -3,6 +3,10 @@ import { AssertionError } from "https://deno.land/std@0.186.0/testing/asserts.ts
 
 export const kv = await Deno.openKv();
 
+const TINYBIRD_WRITE_KEY = Deno.env.get("TINYBIRD_WRITE_KEY");
+const MIN_UNIX_SEC = 1200000000; // 2008-01-10T21:20:00.000Z
+const MIN_UNIX_MS = MIN_UNIX_SEC * 1000;
+
 interface InitItem {
   userId: string;
   title: string;
@@ -16,31 +20,68 @@ export interface Item extends InitItem {
 }
 
 export async function createItem(initItem: InitItem) {
-  let res = { ok: false };
-  while (!res.ok) {
-    const id = crypto.randomUUID();
-    const itemKey = ["items", id];
-    const itemsByUserKey = ["items_by_user", initItem.userId, id];
-    const item: Item = {
-      id,
-      score: 0,
-      createdAt: new Date(),
-      ...initItem,
-    };
+  const id = crypto.randomUUID();
+  const itemKey = ["items", id];
+  const item: Item = {
+    score: 0,
+    createdAt: new Date(),
+    ...initItem,
+    id,
+  };
 
-    res = await kv.atomic()
-      .check({ key: itemKey, versionstamp: null })
-      .check({ key: itemsByUserKey, versionstamp: null })
-      .set(itemKey, item)
-      .set(itemsByUserKey, item)
-      .commit();
+  const res = await kv.atomic()
+    .check({ key: itemKey, versionstamp: null })
+    .set(itemKey, item)
+    .commit();
 
-    return item;
+  if (!res.ok) {
+    console.warn(`Failed to add new item with id: ${id}`);
+    return
   }
+  const {
+    userId,
+    score,
+    createdAt: createdAtRaw,
+    title,
+    url,
+  } = item
+  let createdAt: number | Date = createdAtRaw;
+  if (typeof createdAt === 'object' && typeof createdAt?.getTime === 'function') {
+    createdAt = Math.floor(createdAt.getTime() / 1000);
+  } else if (typeof createdAt === 'number') {
+    if (createdAt > MIN_UNIX_MS) {
+      createdAt = Math.floor(createdAt / 1000) // convert to sec
+    }
+  }
+  // Add event to tinybird
+  const resp = await fetch(
+    'https://api.us-east.tinybird.co/v0/events?name=submissions',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        userId,
+        id,
+        createdAt,
+        score,
+        title,
+        url,
+      }),
+      headers: { Authorization: `Bearer ${TINYBIRD_WRITE_KEY}` }
+    }
+  )
+  // TODO: add retry
+  if (!resp.ok) {
+    console.error(`Failed to post ${id} to tinybird - status: ${resp.status}`)
+  } else {
+    const data = await resp.json();
+    console.log(`Tinybird response: ${JSON.stringify(data)}`);
+  }
+
+  return item;
 }
 
 export async function getAllItems(options?: Deno.KvListOptions) {
-  const iter = await kv.list<Item>({ prefix: ["items"] }, options);
+  const iter = kv.list<Item>({ prefix: ["items"] }, options);
   const items = [];
   for await (const res of iter) items.push(res.value);
   return {
@@ -93,7 +134,7 @@ export async function getCommentsByItem(
   itemId: string,
   options?: Deno.KvListOptions,
 ) {
-  const iter = await kv.list<Comment>({
+  const iter = kv.list<Comment>({
     prefix: ["comments_by_item", itemId],
   }, options);
   const comments = [];
@@ -115,27 +156,11 @@ export async function createVote(initVote: InitVote) {
     const itemRes = await kv.get<Item>(itemKey);
 
     if (itemRes.value === null) throw new Error("Item does not exist");
-
-    const itemByUserKey = [
-      "items_by_user",
-      itemRes.value.userId,
-      itemRes.value.id,
-    ];
-
-    const itemByUserRes = await kv.get<Item>(itemByUserKey);
-
-    if (itemByUserRes.value === null) {
-      throw new Error("Item by user does not exist");
-    }
-
-    itemByUserRes.value.score++;
     itemRes.value.score++;
 
     res = await kv.atomic()
       .check({ key: voteByUserKey, versionstamp: null })
-      .check(itemByUserRes)
       .check(itemRes)
-      .set(itemByUserRes.key, itemByUserRes.value)
       .set(itemRes.key, itemRes.value)
       .set(voteByUserKey, undefined)
       .commit();
@@ -153,27 +178,13 @@ export async function deleteVote(initVote: InitVote) {
 
     if (itemRes.value === null) throw new Error("Item does not exist");
 
-    const itemByUserKey = [
-      "items_by_user",
-      itemRes.value.userId,
-      itemRes.value.id,
-    ];
-
-    const itemByUserRes = await kv.get<Item>(itemByUserKey);
-
-    if (itemByUserRes.value === null) {
-      throw new Error("Item by user does not exist");
-    }
     if (voteByUserRes.value === null) return;
 
-    itemByUserRes.value.score--;
     itemRes.value.score--;
 
     res = await kv.atomic()
-      .check(itemByUserRes)
       .check(itemRes)
       .check(voteByUserRes)
-      .set(itemByUserRes.key, itemByUserRes.value)
       .set(itemRes.key, itemRes.value)
       .delete(voteByUserKey)
       .commit();
@@ -184,7 +195,7 @@ export async function getVotedItemIdsByUser(
   userId: string,
   options?: Deno.KvListOptions,
 ) {
-  const iter = await kv.list<undefined>({
+  const iter = kv.list<undefined>({
     prefix: ["votes_by_users", userId],
   }, options);
   const voteItemIds = [];

@@ -45,7 +45,9 @@ export const handler: Handlers<HomePageData, State> = {
     let votedItemIds: string[] = [];
     if (ctx.state.sessionId) {
       const sessionUser = await getUserBySessionId(ctx.state.sessionId!);
-      votedItemIds = await getVotedItemIdsByUser(sessionUser!.id);
+      if (sessionUser) {
+        votedItemIds = await getVotedItemIdsByUser(sessionUser.id);
+      }
     }
     /** @todo Optimise */
     const areVoted = items.map((item) => votedItemIds.includes(item.id));
